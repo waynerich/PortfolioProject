@@ -1,0 +1,158 @@
+/*
+https://www.coursera.org/articles/what-is-data-cleaning
+Data Cleaning is the first step toward readying data for business intelligence (BI):
+	it uncovers valuable insights
+	ensures accurate analysis
+	simplifies the interpretation and utilization of data files in various business applications
+
+This Data Cleaning project on Nashville Housing dataset is guided by Alex Freberg: https://github.com/AlexTheAnalyst/PortfolioProjects/blob/main/Data%20Cleaning%20Portfolio%20Project%20Queries.sql
+Data source: https://github.com/AlexTheAnalyst/PortfolioProjects/blob/main/Nashville%20Housing%20Data%20for%20Data%20Cleaning%20(reuploaded).xlsx
+*/
+
+
+/*
+	Standardize the SaleDate attribute to only show the date and removing the time:
+		since they all share the same value of '00:00:00:000' and is not needed for further observations/analysis
+*/
+/* Although the query below process successfully, values in the SaleDate attribute doesn't get updated */
+SELECT SaleDate, CONVERT(date , SaleDate)
+FROM PortfolioProject..NashvilleHousing
+UPDATE PortfolioProject..NashvilleHousing
+SET SaleDate = CONVERT(date, SaleDate)
+
+/* The query below is a work around for extracting the values in question, then later proceeds on deleting the SaleDate attribute */
+ALTER TABLE PortfolioProject..NashvilleHousing
+ADD SaleDateOnly date
+UPDATE PortfolioProject..NashvilleHousing
+SET SaleDateOnly = CONVERT(date, SaleDate)
+
+
+/*
+	Populate the PropertyAddress attribute that are having NULL values
+	---
+	The Thought Process:
+*/
+/* Identify what are the NULL values in the PropertyAddress attribute:
+	there are 29 rows/observations that has NULL values in the PropertyAddress attribute */
+SELECT UniqueID, ParcelID, PropertyAddress
+FROM PortfolioProject..NashvilleHousing
+WHERE PropertyAddress IS NULL
+ORDER BY 1
+
+/* Identify which row can be used as a reference to be used to populate the row(s) that has NULL values for PropertyAddress attribute:
+	the rows that have the same ParcelIDs, also have the same PropertyAddress values
+	Join the same 2 NashvilleHousing tables, based on the same ParcelID but does not equal the UniqueID:
+		-To match the rows and prepare the values that are to replace NULL values
+	there are 35 rows returned due to UniqueIDs being repeated where the ParcelID matches and the filter `does not equal the UniqueID` is satisfied, but is still same row to be updated
+	Use ISNULL() to replace the null values with actual/correct values */
+SELECT prim.ParcelID, prim.PropertyAddress, dup.ParcelID, dup.PropertyAddress, ISNULL(prim.PropertyAddress, dup.PropertyAddress) replaceNulls
+FROM PortfolioProject..NashvilleHousing prim
+INNER JOIN PortfolioProject..NashvilleHousing dup
+	ON prim.ParcelID = dup.ParcelID
+	AND prim.[UniqueID ] <> dup.[UniqueID ]
+WHERE prim.PropertyAddress IS NULL
+
+UPDATE prim
+SET PropertyAddress = ISNULL(prim.PropertyAddress, dup.PropertyAddress)
+FROM PortfolioProject..NashvilleHousing prim
+INNER JOIN PortfolioProject..NashvilleHousing dup
+	ON prim.ParcelID = dup.ParcelID
+	AND prim.[UniqueID ] <> dup.[UniqueID ]
+WHERE prim.PropertyAddress IS NULL
+
+
+/*
+	Separate the values in the PropertyAddress attribute to provide the Street and City in its own attribute
+*/
+SELECT PropertyAddress
+, SUBSTRING(PropertyAddress, 1, CHARINDEX(',', PropertyAddress) - 1) PropertyStreet
+, SUBSTRING(PropertyAddress, CHARINDEX(',', PropertyAddress) + 2, LEN(PropertyAddress)) PropertyCity
+FROM PortfolioProject..NashvilleHousing
+
+ALTER TABLE PortfolioProject..NashvilleHousing
+ADD PropertyStreet nvarchar(255),
+PropertyCity nvarchar(255)
+
+UPDATE PortfolioProject..NashvilleHousing
+SET PropertyStreet = SUBSTRING(PropertyAddress, 1, CHARINDEX(',', PropertyAddress) - 1)
+, PropertyCity = SUBSTRING(PropertyAddress, CHARINDEX(',', PropertyAddress) + 2, LEN(PropertyAddress))
+
+
+/*
+	Separate the values in the OwnerAddress attribute to provide the Street, City, and State in its own attribute
+*/
+SELECT OwnerAddress
+, PARSENAME(REPLACE(OwnerAddress, ',', '.'), 3) OwnerStreet
+, PARSENAME(REPLACE(OwnerAddress, ',', '.'), 2) OwnerCity
+, PARSENAME(REPLACE(OwnerAddress, ',', '.'), 1) OwnerState
+FROM PortfolioProject..NashvilleHousing
+
+ALTER TABLE PortfolioProject..NashvilleHousing
+ADD OwnerStreet nvarchar(255),
+OwnerCity nvarchar(255),
+OwnerState nvarchar(255)
+
+UPDATE PortfolioProject..NashvilleHousing
+SET OwnerStreet = PARSENAME(REPLACE(OwnerAddress, ',', '.'), 3)
+, OwnerCity = PARSENAME(REPLACE(OwnerAddress, ',', '.'), 2)
+, OwnerState = PARSENAME(REPLACE(OwnerAddress, ',', '.'), 1)
+
+
+/*
+	Standardize the SoldAsVacant values for consistency
+*/
+SELECT DISTINCT(SoldAsVacant), COUNT(SoldAsVacant)
+--,	CASE
+--		WHEN SoldAsVacant = 'Y' THEN 'Yes'
+--		WHEN SoldAsVacant = 'N' THEN 'No'
+--		ELSE SoldAsVacant
+--	END
+FROM PortfolioProject..NashvilleHousing
+GROUP BY SoldAsVacant
+ORDER BY 2
+
+UPDATE PortfolioProject..NashvilleHousing
+SET SoldAsVacant = 
+CASE
+		WHEN SoldAsVacant = 'Y' THEN 'Yes'
+		WHEN SoldAsVacant = 'N' THEN 'No'
+		ELSE SoldAsVacant
+END
+
+
+/*
+	Remove duplicate rows/observations
+	---
+	The Thought Process:
+*/
+/* Identify what makes a(n) row/observation as duplicate:
+	depending on the context of the dateset where in this case is about housing data, this can be identified with rows that have the same attributes such as:
+		-ParcelID, PropertyAddress, SaleDate, SalePrice, LegalReference
+	Usign ROW_NUMBER() function assigns a sequential rank number to each row where identical values in the same partition is being assigned different row numbers */
+SELECT *, ROW_NUMBER() OVER
+(PARTITION BY ParcelID, PropertyAddress, SaleDate, SalePrice, LegalReference
+ORDER BY UniqueID) row_num
+FROM PortfolioProject..NashvilleHousing
+
+/* Perform filtering to verify if there are duplicates:
+	Using CTE to perform further manipulation since using a WHERE clause in above query is not possible */
+WITH identify_dup AS
+(
+SELECT *, ROW_NUMBER() OVER
+(PARTITION BY ParcelID, PropertyAddress, SaleDate, SalePrice, LegalReference
+ORDER BY UniqueID) row_num
+FROM PortfolioProject..NashvilleHousing
+)
+--SELECT *
+DELETE
+FROM identify_dup
+WHERE row_num > 1
+
+
+/*
+	Remove unused columns/attributes
+*/
+ALTER TABLE PortfolioProject..NashvilleHousing
+DROP COLUMN PropertyAddress, SaleDate, OwnerAddress, TaxDistrict
+SELECT *
+FROM PortfolioProject..NashvilleHousing
