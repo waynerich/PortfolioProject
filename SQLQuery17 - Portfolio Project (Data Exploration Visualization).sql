@@ -1,0 +1,103 @@
+/*
+As per Google Data Analytics Professional Certificate:
+Data Visualization is defined as the graphical representation of information
+
+Showcasing below SQL queries for its results to be extracted into Microsoft Excel to be imported into Tableau;
+	since free Tableau Public does not allow to connect SQL
+	replacing NULL values as 0 temporarily since data is numeric-focused where Tableau will treat NULLs as string
+*/
+
+
+/*
+	Create visualization for `Global Numbers`
+*/
+SELECT SUM(new_cases) totalCases, SUM(CAST(new_deaths AS int)) totalDeaths, (SUM(CAST(new_deaths AS int)) / SUM(new_cases) * 100) percentOfDeath
+FROM PortfolioProject..CovidDeaths
+WHERE continent IS NOT NULL
+
+
+/*
+	Create visualization for `Total deaths per continent` using Bar graph
+*/
+SELECT location, SUM(CAST(new_deaths AS int)) totalDeaths
+FROM PortfolioProject..CovidDeaths
+WHERE continent IS NULL
+	AND location NOT IN ('World', 'European Union', 'International')
+GROUP BY location
+ORDER BY 2 DESC
+
+
+/*
+	Create visualizatoin for `Percent of population infected per country` using Maps
+*/
+DROP TABLE IF EXISTS #rplcNulls
+CREATE TABLE #rplcNullsForSQL3
+(location nvarchar(255),
+population int,
+highestInfectionCount float,
+percentOfPopInfected float)
+
+INSERT INTO #rplcNullsForSQL3
+SELECT location, population, MAX(total_cases) highestInfectionCount, ((MAX(total_cases) / population) * 100) percentOfPopInfected
+FROM PortfolioProject..CovidDeaths
+WHERE continent IS NOT NULL
+GROUP BY location, population
+ORDER BY 4 DESC
+
+UPDATE #rplcNullsForSQL3
+SET population =
+		CASE
+			WHEN population IS NULL THEN 0
+			ELSE population
+		END,
+	highestInfectionCount =
+		CASE
+			WHEN highestInfectionCount IS NULL THEN 0
+			ELSE highestInfectionCount
+		END,
+	percentOfPopInfected =
+		CASE
+			WHEN percentOfPopInfected IS NULL THEN 0
+			ELSE percentOfPopInfected
+		END
+
+
+/*
+	Create visualization for `Percent of population infected over time` using Time series / Trend line, showing Predictive analysis or Forecasting
+*/
+DROP TABLE IF EXISTS #rplcNullsForSQL4
+CREATE TABLE #rplcNullsForSQL4
+(location nvarchar(255),
+population int,
+date date,
+highestInfectionCount float,
+percentOfPopInfected float)
+
+INSERT INTO #rplcNullsForSQL4
+SELECT location, population, date, MAX(total_cases) highestInfectionCount, ((MAX(total_cases) / population) * 100) percentOfPopInfected
+FROM PortfolioProject..CovidDeaths
+WHERE continent IS NOT NULL
+GROUP BY location, population, date
+--ORDER BY 5 DESC
+
+UPDATE #rplcNullsForSQL4
+SET population =
+	CASE
+		WHEN population IS NULL THEN 0
+		ELSE population
+	END,
+	highestInfectionCount =
+	CASE
+		WHEN highestInfectionCount IS NULL THEN 0
+		ELSE highestInfectionCount
+	END,
+	percentOfPopInfected =
+	CASE
+		WHEN percentOfPopInfected IS NULL THEN 0
+		ELSE percentOfPopInfected
+	END
+
+SELECT *
+FROM #rplcNullsForSQL4
+--WHERE highestInfectionCount IS NULL
+ORDER BY percentOfPopInfected DESC
